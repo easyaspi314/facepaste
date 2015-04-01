@@ -3,6 +3,7 @@
 var Cc = Components.classes;
 var Ci = Components.interfaces;
 var Cr = Components.results;
+var Cu = Components.utils;
 var O = window.arguments[0];
 var C = O.content;
 var D = C.document;
@@ -536,29 +537,32 @@ function handle_photo_page(p, r) {
 		Pd++;
 		return;
 	}
-	var wbp = Cc['@mozilla.org/embedding/browser/nsWebBrowserPersist;1'].
-		createInstance(Ci.nsIWebBrowserPersist);
-	wbp.progressListener = {
-		onProgressChange: function() {},
-		onLocationChange: function() {},
-		onSecurityChange: function() {},
-		onStatusChange: function() {},
-		onStateChange: function(aWebProgress, aRequest, aStateFlags,
-			aStatus) {
-			if (wbp.currentState == wbp.PERSIST_STATE_FINISHED) {
-				var chan = aRequest.QueryInterface(
-					Ci.nsIHttpChannel);
-				if (chan.requestSucceeded)
-					handle_photo_success(p);
-				else
-					handle_photo_error(p, chan);
-			}
-		}
-	};
+ 	var options = {
+		source: p.photourl,
+		target: p.outfile,
+	}; 
 	var ios = Cc["@mozilla.org/network/io-service;1"].
 		getService(Ci.nsIIOService);
-	wbp.saveURI(ios.newURI(p.photourl, null, null),
-		null, null, null, '', p.outfile, null);
+	// Firefox pre Aurora-25 did implement an "old" API version, which required
+	// a different set of options.
+	// See: http://mzl.la/1cwWZ2N
+	if (Services.vc.compare(Services.appinfo.version, "25.0a") < 0) {
+		var file = Cc["@mozilla.org/file/local;1"].createInstance(Ci.nsIFile);
+		file.initWithPath(options.target);
+		options = {
+			source: {uri: Services.io.newURI(options.source, null, null)},
+			target: {file: file},
+			saver: {type: "copy"},
+		};
+	}
+ 
+	var d = yield Downloads.createDownload(options);
+	var res = d.whenSucceeded();
+	// lets start the download ...
+	yield d.start();
+	// ... and wait for it to finish
+	yield res; 
+
 }
 
 function handle_photo_page_error(p, r) {
